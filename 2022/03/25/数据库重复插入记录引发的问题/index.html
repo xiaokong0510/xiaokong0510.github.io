@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"example.com","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="常见的接口参数加密方法，让接口不再裸奔。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="由客户端重复请求引发的幂等问题">
+<meta property="og:url" content="http://example.com/2022/03/25/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%87%8D%E5%A4%8D%E6%8F%92%E5%85%A5%E8%AE%B0%E5%BD%95%E5%BC%95%E5%8F%91%E7%9A%84%E9%97%AE%E9%A2%98/index.html">
+<meta property="og:site_name" content="Xiao&#39;s Blog">
+<meta property="og:description" content="常见的接口参数加密方法，让接口不再裸奔。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2022-03-24T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-06-01T15:19:29.223Z">
+<meta property="article:author" content="Kong Xiao">
+<meta property="article:tag" content="幂等">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://example.com/2022/03/25/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%87%8D%E5%A4%8D%E6%8F%92%E5%85%A5%E8%AE%B0%E5%BD%95%E5%BC%95%E5%8F%91%E7%9A%84%E9%97%AE%E9%A2%98/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>由客户端重复请求引发的幂等问题 | Xiao's Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Xiao's Blog</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">进步之路</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签<span class="badge">29</span></a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类<span class="badge">11</span></a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档<span class="badge">26</span></a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+  <div class="reading-progress-bar"></div>
+
+  <a href="https://github.com/xiaokong0510" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2022/03/25/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%87%8D%E5%A4%8D%E6%8F%92%E5%85%A5%E8%AE%B0%E5%BD%95%E5%BC%95%E5%8F%91%E7%9A%84%E9%97%AE%E9%A2%98/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/author.png">
+      <meta itemprop="name" content="Kong Xiao">
+      <meta itemprop="description" content="半路出家 举步维艰">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Xiao's Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          由客户端重复请求引发的幂等问题
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2022-03-25 00:00:00" itemprop="dateCreated datePublished" datetime="2022-03-25T00:00:00+08:00">2022-03-25</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-06-01 23:19:29" itemprop="dateModified" datetime="2022-06-01T23:19:29+08:00">2022-06-01</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E6%9B%B4%E5%A4%9A/" itemprop="url" rel="index"><span itemprop="name">更多</span></a>
+                </span>
+            </span>
+
+          
+            <div class="post-description">常见的接口参数加密方法，让接口不再裸奔。</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>最近在做项目的过程中，遇到了一个 <strong>数据库里插入了重复数据</strong> 的问题，当时还造成了一定的困扰。</p>
+<p>在请教公司大佬，同时网上搜索后，才把问题弄清，其实就是 <strong>接口幂等性</strong> 的问题，记录一下。</p>
+<h2 id="1-问题引入"><a href="#1-问题引入" class="headerlink" title="1 问题引入"></a>1 问题引入</h2><p>有这样一个场景：<strong>新增用户时，往用户表里插入数据</strong></p>
+<p>用户表类似这样：</p>
+<table>
+<thead>
+<tr>
+<th><strong>字段</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>id</td>
+<td>int</td>
+<td>自增主键</td>
+</tr>
+<tr>
+<td>device_info</td>
+<td>varchar</td>
+<td>设备信息</td>
+</tr>
+<tr>
+<td>name</td>
+<td>varchar</td>
+<td>用户名</td>
+</tr>
+<tr>
+<td>…</td>
+<td></td>
+<td></td>
+</tr>
+</tbody></table>
+<p>处理流程：</p>
+<ol>
+<li><p>客户端调用登录接口，携带设备信息字段 deviceInfo；</p>
+</li>
+<li><p>后台先根据 该设备信息参数 去数据库查询用户名是否存在；</p>
+<p>不存在则往用户表里新增一条记录；存在则进行后续业务操作。</p>
+</li>
+</ol>
+<p>代码示意：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">User</span> <span class="variable">user</span> <span class="operator">=</span> userMapper.selectBykey(deviceInfo);</span><br><span class="line"><span class="keyword">if</span>(user == <span class="literal">null</span>) &#123;</span><br><span class="line">    <span class="comment">// 执行插入insert</span></span><br><span class="line">  &#125;<span class="keyword">else</span> &#123;</span><br><span class="line"> <span class="comment">// 执行业务操作</span></span><br><span class="line"> &#125;</span><br></pre></td></tr></table></figure>
+
+<p>接口写完了，在客户端对接的过程中，发现数据库出现了一些重复记录，除了主键 id 外，其余信息完全一样。</p>
+<p>查询日志发现 <strong>insert into 语句同时执行了两次，</strong>参数是一样的<strong>，但是实际上这只是一个用户。</strong></p>
+<p>刚开始想法太简单，不知道是什么原因。请教了公司同事进行排查，才知道是并发问题导致的。</p>
+<p>客户端并发调用登录接口，同时进入了 if 条件判断语句内部，所以插入操作执行了两次。自己用 Jmeter 测试一下确实如此。</p>
+<h2 id="2-数据库层面解决"><a href="#2-数据库层面解决" class="headerlink" title="2 数据库层面解决"></a>2 数据库层面解决</h2><p>从数据库层面，为了防止数据库插入重复的数据，将 <strong>device_info</strong> 设置了唯一索引。</p>
+<p>有以下几种解决方案：</p>
+<h3 id="1-insert-ignore-into"><a href="#1-insert-ignore-into" class="headerlink" title="(1) insert ignore into"></a>(1) insert ignore into</h3><blockquote>
+<p>如果insert into 两条 device_info 相同的数据，则会报错 <code>Duplicate entry</code></p>
+</blockquote>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">INSERT</span> <span class="keyword">INTO</span> user_info ( device_info，name ) <span class="keyword">VALUES</span> (<span class="string">&#x27;250&#x27;</span>，<span class="string">&#x27;Zhangsan&#x27;</span>), (<span class="string">&#x27;250&#x27;</span>,<span class="string">&#x27;lisi&#x27;</span>);</span><br><span class="line"><span class="comment">----</span></span><br><span class="line"> Duplicate entry <span class="string">&#x27;250&#x27;</span> <span class="keyword">for</span> key <span class="string">&#x27;&#x27;</span>device_info<span class="string">&#x27;&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>使用 <code>insert ignore into</code>，插入数据时，会判断主键或者唯一索引是否有重复，如果有重复则不执行，也不会报错。</p>
+<blockquote>
+<p>例如，向数据库插入两条相同的数据，最后数据库中只会存在一条记录。</p>
+</blockquote>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">INSERT</span> <span class="keyword">INTO</span> user_info ( device_info，name )<span class="keyword">VALUES</span> </span><br><span class="line">(<span class="string">&#x27;251&#x27;</span>,<span class="string">&#x27;Zhangsan&#x27;</span>), </span><br><span class="line">(<span class="string">&#x27;251&#x27;</span>，<span class="string">&#x27;lisi&#x27;</span>);</span><br><span class="line"><span class="comment">----</span></span><br><span class="line"><span class="operator">&gt;</span> Affected <span class="keyword">rows</span>: <span class="number">1</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-on-duplicate-key-update"><a href="#2-on-duplicate-key-update" class="headerlink" title="(2) on duplicate key update"></a>(2) on duplicate key update</h3><p>插入一条记录，若该数据的主键值或者 UNIQUE KEY 已经在表中存在，<strong>则执行更新操作，即UPDATE 后面的操作；</strong>  否则插入一条新的记录。</p>
+<blockquote>
+<p>如下sql语句，已经存在唯一索引 user_info &#x3D; 250的记录，则只会执行更新操作，不会再次插入</p>
+</blockquote>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">INSERT</span> <span class="keyword">INTO</span> <span class="keyword">user</span> ( device_info, name )</span><br><span class="line"><span class="keyword">VALUES</span></span><br><span class="line">	( <span class="string">&#x27;251&#x27;</span>, <span class="string">&#x27;zhangsan&#x27;</span> ) </span><br><span class="line">	<span class="keyword">ON</span> DUPLICATE KEY <span class="keyword">UPDATE</span> name <span class="operator">=</span> <span class="string">&#x27;wangwu&#x27;</span></span><br><span class="line"><span class="comment">----</span></span><br><span class="line"><span class="operator">&gt;</span> Affected <span class="keyword">rows</span>: <span class="number">2</span></span><br></pre></td></tr></table></figure>
+
+<p>查看表，之前的记录被更新了</p>
+<h3 id="3-replace-into"><a href="#3-replace-into" class="headerlink" title="(3) replace into"></a>(3) replace into</h3><p>使用 <code>REPLACE INTO</code>，如果存在主键或者 UNIQUE KEY 相同的记录，则会 <strong>删除原数据</strong> ，然后重新插入新的数据。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">REPLACE <span class="keyword">INTO</span> <span class="keyword">USER</span> ( device_info, NAME )</span><br><span class="line"><span class="keyword">VALUES</span></span><br><span class="line">	( <span class="string">&#x27;251&#x27;</span>, <span class="string">&#x27;zhangsan&#x27;</span> )</span><br><span class="line"><span class="comment">----</span></span><br><span class="line"><span class="operator">&gt;</span> Affected <span class="keyword">rows</span>: <span class="number">2</span></span><br></pre></td></tr></table></figure>
+
+<p>查看表，之前的记录删除了，同时新增一条记录。</p>
+<p>在项目中暂时使用了将字段 device_info 设置为唯一索引，插入语句改为 insert ignore into 来进行处理。</p>
+<p>但是如果对于上线的数据库，已经有重复的数据入库了，这个时候又没办法筛选出重复的数据，无法建立唯一索引。</p>
+<p>也可以使用<code>Redis</code> 的 <code>setnx </code> 指令来实现，或者使用 Redisson 实现 Redis分布式锁，这里暂时不细说了。</p>
+<h2 id="3-什么是幂等"><a href="#3-什么是幂等" class="headerlink" title="3 什么是幂等"></a>3 什么是幂等</h2><p>针对上述问题，需要保证接口的 <strong>幂等性</strong> 。</p>
+<h3 id="1-定义"><a href="#1-定义" class="headerlink" title="(1) 定义"></a>(1) 定义</h3><p>幂等性(Idempotence)。在HTTP&#x2F;1.1规范中幂等性的定义是：</p>
+<blockquote>
+<p>Methods can also have the property of “idempotence” in that (aside from error or expiration issues) the side-effects of N &gt; 0 identical requests is the same as for a single request.</p>
+</blockquote>
+<p>维基百科上的定义：</p>
+<blockquote>
+<p>幂等（idempotent、idempotence）是一个数学与计算机学概念，常见于抽象代数中。<br>在编程中一个幂等操作的特点是其任意多次执行所产生的影响均与一次执行的影响相同。</p>
+<p>用数学语言表达就是<code>f(x)=f(f(x))</code>。</p>
+<p><strong>幂等函数</strong> ，或 <strong>幂等方法</strong> ，是指可以使用相同参数重复执行，并能获得相同结果的函数。</p>
+</blockquote>
+<p>如果一个接口满足 <strong>以相同的请求调用这个接口一次和调用这个接口多次，对系统产生的影响是相同的</strong> ，那么就说这个接口是一个幂等接口。</p>
+<h3 id="2-需要幂等性的场景"><a href="#2-需要幂等性的场景" class="headerlink" title="(2) 需要幂等性的场景"></a>(2) 需要幂等性的场景</h3><p>在编程中主要操作就是 CURD，其中读取（Retrieve）操作和删除（Delete）操作是天然幂等的，受影响的就是创建（Create）、更新（Update）</p>
+<p>对于业务中需要考虑幂等性的地方一般都是接口的重复请求，即同一个请求因为某些原因被多次提交。导致这个情况会有几种场景：</p>
+<ul>
+<li>前端重复提交：提交订单，用户快速重复点击多次，造成后端生成多个内容重复的订单。</li>
+<li>接口超时重试：对于给第三方调用的接口，为了防止网络抖动或其他原因造成请求丢失，这样的接口一般都会设计成超时重试多次。</li>
+<li>消息重复消费：MQ 消息中间件，消息重复消费。</li>
+</ul>
+<h3 id="3-幂等性的实现方式"><a href="#3-幂等性的实现方式" class="headerlink" title="(3) 幂等性的实现方式"></a>(3) 幂等性的实现方式</h3><p>对于和 web 端交互的接口，在前端防止表单重复提交，可以采用点击提交按钮后置灰、隐藏、不可点击等方式，目前做的一些管理后台系统都在这么干，虽然粗糙了点。</p>
+<p>还可以采用以下几种实现方式</p>
+<h4 id="数据库唯一主键"><a href="#数据库唯一主键" class="headerlink" title="数据库唯一主键"></a>数据库唯一主键</h4><p>适用于执行插入操作时的幂等性，利用数据库中主键唯一约束的特性，能保证一张表中只能存在一条带该唯一主键的记录。也就是标题 2 中提到的几种方法</p>
+<h4 id="乐观锁"><a href="#乐观锁" class="headerlink" title="乐观锁"></a>乐观锁</h4><p>适用于执行更新操作的接口，可以提前在对应的数据表中多添加一个字段，比如当前时间戳，充当当前数据的版本标识。</p>
+<p>时间戳标识由前端到数据中查询出来，再传给执行更新操作的接口；</p>
+<p>执行完更新操作后，时间戳也被更新，这样重复执行该条 SQL 语句将不生效</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">update</span> table_xxx <span class="keyword">set</span> name<span class="operator">=</span> #name#, <span class="type">timestamp</span> <span class="operator">=</span> now() <span class="keyword">where</span> id<span class="operator">=</span>#id# <span class="keyword">and</span> <span class="type">timestamp</span><span class="operator">=</span>#<span class="type">timestamp</span>#</span><br></pre></td></tr></table></figure>
+
+<h4 id="Token-机制防重"><a href="#Token-机制防重" class="headerlink" title="Token 机制防重"></a>Token 机制防重</h4><p>流程：</p>
+<ol>
+<li>调用方在调用接口的时候先向后端请求一个全局 <code>ID（Token）</code>，并将 <code>Token</code> 存入<code>Redis</code>中；</li>
+<li>请求的时候携带这个全局 <code>ID</code> 一起请求（一般放到 <code>Headers</code> 中）；</li>
+<li>后端需要对这个 <code>Token</code> 作为 <code>Key</code>，用户信息作为 <code>Value</code> 到 <code>Redis</code> 中进行键值内容校验；</li>
+<li>如果 <code>Key</code> 存在且 <code>Value</code> 匹配就执行删除命令，然后正常执行后面的业务逻辑；</li>
+<li>如果不存在对应的 <code>Key</code> 或 <code>Value</code> 不匹配就返回重复执行的错误信息，这样来保证幂等操作。</li>
+</ol>
+<p>这里可以使用 自定义注解 + 拦截器实现</p>
+<h4 id="下游传递唯一序列号"><a href="#下游传递唯一序列号" class="headerlink" title="下游传递唯一序列号"></a>下游传递唯一序列号</h4><p>流程：</p>
+<ol>
+<li>下游服务生成分布式 <code>ID</code> 作为序列号，然后执行请求调用上游接口，并附带 **唯一序列号 **与请求的 <strong>认证凭据ID</strong> ；</li>
+<li>上游服务进行安全效验，检测下游传递的参数中是否存在 <strong>序列号</strong> 和 <strong>凭据ID</strong> ；</li>
+<li>上游服务到 Redis 中检测是否存在对应的 <strong>序列号</strong> 与 <strong>认证ID</strong> 组成的 <code>Key</code>，如果存在就抛出重复执行的异常信息，然后响应下游对应的错误信息；</li>
+<li>如果不存在就以该 <strong>序列号</strong> 和 <strong>认证ID</strong> 组合作为 <code>Key</code>，以下游关键信息作为 <code>Value</code>，进而存储到 Redis 中，一定要设置过期时间，然后正常执行接来来的业务逻辑。</li>
+</ol>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E5%B9%82%E7%AD%89/" rel="tag"># 幂等</a>
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2022/03/10/API%E6%8E%A5%E5%8F%A3%E7%AD%BE%E5%90%8D%E6%A0%A1%E9%AA%8C/" rel="prev" title="API接口签名验证与参数加密">
+      <i class="fa fa-chevron-left"></i> API接口签名验证与参数加密
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2022/05/27/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E7%AE%97%E6%B3%95(%E4%B8%80)-%E6%97%B6%E9%97%B4%E5%A4%8D%E6%9D%82%E5%BA%A6%E5%92%8C%E7%AE%80%E5%8D%95%E6%8E%92%E5%BA%8F%E7%AE%97%E6%B3%95/" rel="next" title="数据结构与算法(一) - 时间复杂度和简单排序算法">
+      数据结构与算法(一) - 时间复杂度和简单排序算法 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E9%97%AE%E9%A2%98%E5%BC%95%E5%85%A5"><span class="nav-text">1 问题引入</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B1%82%E9%9D%A2%E8%A7%A3%E5%86%B3"><span class="nav-text">2 数据库层面解决</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-insert-ignore-into"><span class="nav-text">(1) insert ignore into</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-on-duplicate-key-update"><span class="nav-text">(2) on duplicate key update</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-replace-into"><span class="nav-text">(3) replace into</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E4%BB%80%E4%B9%88%E6%98%AF%E5%B9%82%E7%AD%89"><span class="nav-text">3 什么是幂等</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-%E5%AE%9A%E4%B9%89"><span class="nav-text">(1) 定义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-%E9%9C%80%E8%A6%81%E5%B9%82%E7%AD%89%E6%80%A7%E7%9A%84%E5%9C%BA%E6%99%AF"><span class="nav-text">(2) 需要幂等性的场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-%E5%B9%82%E7%AD%89%E6%80%A7%E7%9A%84%E5%AE%9E%E7%8E%B0%E6%96%B9%E5%BC%8F"><span class="nav-text">(3) 幂等性的实现方式</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%95%B0%E6%8D%AE%E5%BA%93%E5%94%AF%E4%B8%80%E4%B8%BB%E9%94%AE"><span class="nav-text">数据库唯一主键</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B9%90%E8%A7%82%E9%94%81"><span class="nav-text">乐观锁</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Token-%E6%9C%BA%E5%88%B6%E9%98%B2%E9%87%8D"><span class="nav-text">Token 机制防重</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B8%8B%E6%B8%B8%E4%BC%A0%E9%80%92%E5%94%AF%E4%B8%80%E5%BA%8F%E5%88%97%E5%8F%B7"><span class="nav-text">下游传递唯一序列号</span></a></li></ol></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Kong Xiao"
+      src="/images/author.png">
+  <p class="site-author-name" itemprop="name">Kong Xiao</p>
+  <div class="site-description" itemprop="description">半路出家 举步维艰</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">26</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">29</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xiaokong0510" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xiaokong0510" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2021 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">kongxiao</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Gemini</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
